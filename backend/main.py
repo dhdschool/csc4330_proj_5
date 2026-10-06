@@ -1,0 +1,1 @@
+# We use python because the gradescope-api library is written in Python
