@@ -28,7 +28,8 @@ class Assignment:
     submissions_status: str
     grade: str
     max_grade: str
-
+    submission_id: str | None = None
+    
 
 def update_assignment_date(
     session: requests.Session,

@@ -107,10 +107,13 @@ def get_assignments_student_view(coursepage_soup):
         assignment_button = assignment[0].find("button", class_="js-submitAssignment")
         if assignment_a_href:
             assignment_id = assignment_a_href["href"].split("/")[4]
+            submission_id = assignment_a_href["href"].split("/")[-1]
         elif assignment_button:
             assignment_id = assignment_button["data-assignment-id"]
+            submission_id = None
         else:
             assignment_id = None
+            submission_id = None
 
         # Extract submission status, grade, max_grade
         try:  # Points not guaranteed
@@ -160,6 +163,7 @@ def get_assignments_student_view(coursepage_soup):
             submissions_status=submission_status,
             grade=grade,
             max_grade=max_grade,
+            submission_id=submission_id
         )
 
         # Append the dictionary to the list
