@@ -1,4 +1,4 @@
-gradescopeapi>=1.7
+-e ./lib/gradescope-api
 fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
