@@ -53,4 +53,4 @@ class Question:
     question_id: str
     points: int
     title: str
-    content: list[Content]
+    content: dict[str, Content]
