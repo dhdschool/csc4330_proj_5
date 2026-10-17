@@ -261,7 +261,7 @@ class _SubmitPageState extends State<SubmitPage> {
                         title: Text(f.name),
                         subtitle: f.lengthSync() == null
                             ? null
-                            : Text(_formatSize(f.lengthSync()!)),
+                            : Text(formatSize(f.lengthSync()!)),
                         trailing: IconButton(
                           tooltip: 'Remove',
                           icon: const Icon(Icons.close),
@@ -343,12 +343,6 @@ class _SubmitPageState extends State<SubmitPage> {
         CombineToPdf() => 'combine',
         ConvertTo(:final target) => 'to:$target',
       };
-}
-
-String _formatSize(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 class SubmittedPage extends StatelessWidget {

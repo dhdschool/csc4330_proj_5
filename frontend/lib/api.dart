@@ -1,12 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-/// Backend address. Override with:
-///   flutter run --dart-define=BACKEND_URL=http://10.0.2.2:8000   (Android emulator)
-const backendUrl =
-    String.fromEnvironment('BACKEND_URL', defaultValue: 'http://localhost:8000');
+/// Backend address. Defaults to this computer: `10.0.2.2` is how the Android
+/// emulator reaches it. A real phone needs the computer's Wi-Fi IP:
+///   flutter run --dart-define=BACKEND_URL=http://192.168.1.20:8000
+final backendUrl = const String.fromEnvironment('BACKEND_URL').isNotEmpty
+    ? const String.fromEnvironment('BACKEND_URL')
+    : !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+        ? 'http://10.0.2.2:8000'
+        : 'http://localhost:8000';
 
 /// An error from the backend, carrying its `detail` message.
 class ApiException implements Exception {
@@ -150,15 +156,25 @@ class Api {
         filename: f.name,
       ));
     }
-    final res = await _send(() async => http.Response.fromStream(await req.send()));
+    // No time limit: big uploads and video conversion can take minutes.
+    final res = await _send(() async => http.Response.fromStream(await req.send()),
+        timeout: null);
     return SubmitResult(res['submission_url'], List<String>.from(res['files']));
   }
 
   /// Runs a request and returns the decoded JSON, or throws [ApiException].
-  Future<dynamic> _send(Future<http.Response> Function() request) async {
+  ///
+  /// Gives up after [timeout] so a wrong address or a stuck server shows an
+  /// error instead of spinning forever.
+  Future<dynamic> _send(Future<http.Response> Function() request,
+      {Duration? timeout = const Duration(seconds: 45)}) async {
     final http.Response res;
     try {
-      res = await request();
+      res = await (timeout == null ? request() : request().timeout(timeout));
+    } on TimeoutException {
+      throw ApiException(0,
+          "The backend at $backendUrl didn't answer. Is the server running, "
+          'and is that the right address for this device?');
     } catch (_) {
       throw ApiException(0,
           "Can't reach the backend at $backendUrl. Is the server running?");
