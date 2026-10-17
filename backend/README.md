@@ -26,6 +26,16 @@ Interactive docs: http://localhost:8000/docs
 
 Keep it to **one worker** (`--workers 1`): logins are stored in memory.
 
+## Running tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -v
+```
+
+The video conversion tests are skipped when ffmpeg isn't installed. GitHub Actions runs them on pushes
+to `main`/`UI/UX` and on pull requests (`.github/workflows/main.yml`).
+
 ## Endpoints
 
 All endpoints except `/auth/login` and `/convert/formats` need
