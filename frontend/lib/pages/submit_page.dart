@@ -176,10 +176,13 @@ class _SubmitPageState extends State<SubmitPage> {
         combineImagesToPdf: _conversion is CombineToPdf,
       );
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => SubmittedPage(
-            course: widget.course, assignment: a, result: result),
-      ));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => SubmittedPage(
+              course: widget.course, assignment: a, result: result),
+        ),
+        result: true, // tells the assignments list to reload
+      );
     } catch (e) {
       if (mounted) showApiError(context, e);
     } finally {
@@ -192,7 +195,13 @@ class _SubmitPageState extends State<SubmitPage> {
     final a = widget.assignment;
     final theme = Theme.of(context);
     final problem = _problem;
-    final targets = _formats.keys.toList()..sort();
+    final targets = {
+      ..._formats.keys,
+      // A conversion suggested before the format list loaded (or if it failed)
+      // still needs its menu item, or the dropdown throws.
+      if (_conversion case ConvertTo(:final target)) target,
+    }.toList()
+      ..sort();
 
     return Scaffold(
       appBar: AppBar(title: Text(a.name), actions: const [LogoutButton()]),

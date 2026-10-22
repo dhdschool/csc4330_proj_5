@@ -11,7 +11,7 @@ Supported targets:
 import subprocess
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 try:  # HEIC/HEIF (iPhone photos) support
     from pillow_heif import register_heif_opener
@@ -56,7 +56,8 @@ def convert(src: Path, target: str, out_dir: Path) -> Path:
     if not can_convert(src_ext, target):
         raise ConversionError(f"Can't convert .{src_ext} to .{target}")
 
-    out = out_dir / f"{src.stem}.{target}"
+    # photo.png -> photo.jpg must not overwrite an uploaded photo.jpg
+    out = unique_path(out_dir / f"{src.stem}.{target}")
     if target == "mp4":
         _ffmpeg([
             "-i", str(src),
@@ -71,9 +72,11 @@ def convert(src: Path, target: str, out_dir: Path) -> Path:
     elif target == "pdf":
         images_to_pdf([src], out)
     else:  # jpg / png
-        with Image.open(src) as img:
-            img = img.convert("RGB") if target == "jpg" else img
-            img.save(out, "JPEG" if target == "jpg" else "PNG", quality=92)
+        with _open_image(src) as img:
+            if target == "jpg":
+                _to_rgb(img).save(out, "JPEG", quality=92)
+            else:
+                img.save(out, "PNG")
     return out
 
 
@@ -86,12 +89,41 @@ def images_to_pdf(images: list[Path], out: Path) -> Path:
         for p in images:
             if ext_of(p) not in IMAGE_EXT:
                 raise ConversionError(f"{p.name} is not an image")
-            pages.append(Image.open(p).convert("RGB"))
+            with _open_image(p) as img:
+                pages.append(_to_rgb(img))
         pages[0].save(out, "PDF", save_all=True, append_images=pages[1:], resolution=150)
     finally:
         for page in pages:
             page.close()
     return out
+
+
+def unique_path(path: Path) -> Path:
+    """path, or path with _1, _2, ... added to the name if it's taken."""
+    candidate, i = path, 1
+    while candidate.exists():
+        candidate = path.with_name(f"{path.stem}_{i}{path.suffix}")
+        i += 1
+    return candidate
+
+
+def _open_image(path: Path) -> Image.Image:
+    """Load an image upright: phone cameras store the rotation in EXIF."""
+    try:
+        with Image.open(path) as img:
+            return ImageOps.exif_transpose(img)  # always a loaded copy
+    except (UnidentifiedImageError, OSError) as e:
+        raise ConversionError(f"{path.name} is not a readable image") from e
+
+
+def _to_rgb(img: Image.Image) -> Image.Image:
+    """RGB copy for JPEG/PDF, with transparent areas white instead of black."""
+    if img.mode in ("RGBA", "LA", "PA") or "transparency" in img.info:
+        rgba = img.convert("RGBA")
+        flat = Image.new("RGB", img.size, "white")
+        flat.paste(rgba, mask=rgba)
+        return flat
+    return img.convert("RGB")
 
 
 def _ffmpeg(args: list[str]) -> None:

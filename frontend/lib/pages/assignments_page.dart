@@ -36,8 +36,12 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     return items;
   }
 
-  void _open(Assignment a) => Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => SubmitPage(course: widget.course, assignment: a)));
+  Future<void> _open(Assignment a) async {
+    final submitted = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => SubmitPage(course: widget.course, assignment: a)));
+    // Otherwise "Back to assignments" still shows the old status.
+    if (submitted == true && mounted) setState(() => _future = _load());
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -40,7 +40,28 @@ class RadioInput(pydantic.BaseModel):
     type: Literal["radio_input"]
     choices: list[RadioChoices]
 
-QuestionContent = Annotated[Union[TextContent, FileUploadInput, FreeResponseInput, RadioInput], pydantic.Field(discriminator="type")]
+class UnknownContent(pydantic.BaseModel):
+    """A content type not modelled above. Keeps every field Gradescope sent."""
+    model_config = pydantic.ConfigDict(extra="allow")
+    type: str
+
+_MODELLED_TYPES = {"text", "file_upload_input", "free_response_input", "radio_input"}
+
+def _content_tag(block: Any) -> str:
+    kind = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+    return kind if kind in _MODELLED_TYPES else "unknown"
+
+# One new content type on Gradescope's side shouldn't make the whole assignment unparseable.
+QuestionContent = Annotated[
+    Union[
+        Annotated[TextContent, pydantic.Tag("text")],
+        Annotated[FileUploadInput, pydantic.Tag("file_upload_input")],
+        Annotated[FreeResponseInput, pydantic.Tag("free_response_input")],
+        Annotated[RadioInput, pydantic.Tag("radio_input")],
+        Annotated[UnknownContent, pydantic.Tag("unknown")],
+    ],
+    pydantic.Discriminator(_content_tag),
+]
 
     
 class Question(pydantic.BaseModel):
@@ -97,7 +118,10 @@ class OnlineAssignmentSubmitterContent(pydantic.BaseModel):
     questionSubmissions: dict[str, QuestionSubmissionsView]
     files: list[FilesContent]
     
-SubmissionContent = Union[OnlineAssignmentSubmitterContent | AssignmentSubmissionContent]    
+SubmissionContent = Annotated[
+    Union[OnlineAssignmentSubmitterContent, AssignmentSubmissionContent],
+    pydantic.Field(discriminator="type"),
+]
 
 class Content(pydantic.BaseModel):
     content: SubmissionContent

@@ -104,7 +104,9 @@ class Api {
   Future<void> logout() async {
     if (_token == null) return;
     try {
-      await http.post(Uri.parse('$backendUrl/auth/logout'), headers: _auth);
+      await http
+          .post(Uri.parse('$backendUrl/auth/logout'), headers: _auth)
+          .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Logging out locally is enough if the backend is unreachable.
     }
@@ -179,9 +181,16 @@ class Api {
       throw ApiException(0,
           "Can't reach the backend at $backendUrl. Is the server running?");
     }
-    final body = res.body.isEmpty ? null : jsonDecode(res.body);
-    if (res.statusCode >= 200 && res.statusCode < 300) return body;
     if (res.statusCode == 401) _token = null;
+    final dynamic body;
+    try {
+      body = res.body.isEmpty ? null : jsonDecode(res.body);
+    } on FormatException {
+      // A plain-text 500, a proxy's error page, or not our backend at all.
+      throw ApiException(res.statusCode,
+          'Unexpected response (${res.statusCode}) from the backend at $backendUrl.');
+    }
+    if (res.statusCode >= 200 && res.statusCode < 300) return body;
     final detail = body is Map ? body['detail'] : null;
     throw ApiException(
         res.statusCode, detail is String ? detail : 'Error ${res.statusCode}');

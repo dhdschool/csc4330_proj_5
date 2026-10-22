@@ -5,7 +5,11 @@ import requests
 
 from gradescopeapi import DEFAULT_GRADESCOPE_BASE_URL
 from gradescopeapi.classes.assignments import Assignment
-from gradescopeapi.classes.content import Content
+from gradescopeapi.classes.content import (
+    AssignmentSubmissionContent,
+    Content,
+    OnlineAssignmentSubmitterContent,
+)
 from bs4 import BeautifulSoup
 
 class NotAuthorized(Exception):
@@ -31,6 +35,11 @@ def check_page_auth(session, endpoint):
         raise Exception("Page not Found")
     elif submissions_resp.status_code == requests.codes.ok:
         return submissions_resp
+    # Anything else (403, 5xx, an unrecognised 401) used to return None, which
+    # every caller then crashed on when reading .text
+    raise Exception(
+        f"Unexpected response from Gradescope ({submissions_resp.status_code}) for {endpoint}"
+    )
 
 
 def get_assignments_instructor_view(coursepage_soup):
@@ -197,17 +206,26 @@ def get_submission_files(
         # TODO add support for image questions
     return aws_links
 
+# React component on the assignment page -> the model for its props.
+CONTENT_VIEWS = {
+    "AssignmentSubmissionViewer": AssignmentSubmissionContent,  # viewing a submission
+    "OnlineAssignmentSubmitter": OnlineAssignmentSubmitterContent,  # answering a new one
+}
+
+
 def get_content(soup: BeautifulSoup) -> Content:
-    view = soup.find("div", attrs={"data-react-class": "AssignmentSubmissionViewer"})
-    
-    if(view is None):
-        view = soup.find("div", attrs={"data-react-class": "OnlineAssignmentSubmitter"})
-    
-    if(view is None):
-        raise ValueError("Could not get content")
-    
-    return Content.model_validate({"content": json.loads(view.attrs["data-react-props"])})    
-    
+    """Raises ValueError (pydantic's ValidationError is one) if the page can't be parsed."""
+    for react_class, model in CONTENT_VIEWS.items():
+        view = soup.find("div", attrs={"data-react-class": react_class})
+        if view is not None and view.get("data-react-props"):
+            # The component tells us which model it is, so validate against that one only
+            return Content(content=model.model_validate_json(view["data-react-props"]))
+
+    raise ValueError(
+        "Could not get content: not an online assignment page (or the login expired)"
+    )
+
+
 def get_content_by_assignment(
                 course_id: str,
                 assignment_id: str,

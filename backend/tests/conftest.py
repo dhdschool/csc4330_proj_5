@@ -87,6 +87,12 @@ def png_bytes(color="red", size=(40, 30)) -> bytes:
     return buf.getvalue()
 
 
+def jpeg_bytes(color="blue", size=(40, 30), exif=None) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, "JPEG", exif=exif or Image.Exif())
+    return buf.getvalue()
+
+
 def mov_bytes(tmp_path: Path) -> bytes:
     """A one-second test video, made with ffmpeg."""
     out = tmp_path / "clip.mov"

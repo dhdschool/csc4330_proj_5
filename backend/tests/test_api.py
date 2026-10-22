@@ -1,11 +1,13 @@
+import io
 import re
 
 import pytest
 from gradescopeapi.classes.courses import Course
+from PIL import Image
 
 import main
 import sessions
-from conftest import HAS_FFMPEG, FakeConnection, mov_bytes, png_bytes
+from conftest import HAS_FFMPEG, FakeConnection, jpeg_bytes, mov_bytes, png_bytes
 
 SUBMIT = "/courses/1/assignments/2/submit"
 
@@ -93,6 +95,24 @@ def test_unsupported_conversion_is_400(client, auth):
     assert "Can't convert .png to .mp4" in res.json()["detail"]
 
 
+def test_convert_turns_phone_photos_upright(client, auth):
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation: shown rotated 90°, as phone cameras save portrait shots
+    res = client.post("/convert", headers=auth, data={"target": "png"},
+                      files={"file": ("portrait.jpg", jpeg_bytes(size=(40, 30), exif=exif))})
+    assert res.status_code == 200
+    assert Image.open(io.BytesIO(res.content)).size == (30, 40)
+
+
+def test_convert_puts_transparency_on_white(client, auth):
+    buf = io.BytesIO()
+    Image.new("RGBA", (10, 10), (0, 0, 0, 0)).save(buf, "PNG")
+    res = client.post("/convert", headers=auth, data={"target": "jpg"},
+                      files={"file": ("ink.png", buf.getvalue())})
+    assert res.status_code == 200
+    assert min(Image.open(io.BytesIO(res.content)).getpixel((5, 5))) > 245  # white, not black
+
+
 def test_convert_needs_login(client):
     res = client.post("/convert", files={"file": ("photo.png", png_bytes())},
                       data={"target": "jpg"})
@@ -130,11 +150,20 @@ def test_two_images_combine_into_one_pdf(client, auth, fake_upload):
     assert len(re.findall(rb"/Type\s*/Page(?!s)", pdf)) == 2  # one page per image
 
 
-def test_same_file_name_twice_is_kept_apart(client, auth, fake_upload):
-    res = client.post(SUBMIT, headers=auth, files=[("files", ("a.png", png_bytes())),
-                                                   ("files", ("a.png", png_bytes()))])
+def test_same_file_name_is_kept_apart(client, auth, fake_upload):
+    res = client.post(SUBMIT, headers=auth, files=[("files", ("a.png", png_bytes()))] * 3)
     assert res.status_code == 200
-    assert fake_upload.file_names == ["a.png", "a_1.png"]
+    assert fake_upload.file_names == ["a.png", "a_1.png", "a_2.png"]
+
+
+def test_converting_does_not_overwrite_an_uploaded_file(client, auth, fake_upload):
+    original = jpeg_bytes()
+    res = client.post(SUBMIT, headers=auth, data={"convert_to": "jpg"},
+                      files=[("files", ("photo.png", png_bytes())),
+                             ("files", ("photo.jpg", original))])
+    assert res.status_code == 200
+    assert fake_upload.file_names == ["photo_1.jpg", "photo.jpg"]
+    assert fake_upload.contents[1] == original
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg is not installed")
@@ -178,3 +207,17 @@ def test_unsafe_file_name_is_cleaned(client, auth, fake_upload):
                       files=[("files", ("../../etc/hw 1?.png", png_bytes()))])
     assert res.status_code == 200
     assert fake_upload.file_names == ["hw 1_.png"]
+
+
+def test_long_file_name_keeps_its_extension(client, auth, fake_upload):
+    res = client.post(SUBMIT, headers=auth, files=[("files", ("x" * 200 + ".png", png_bytes()))])
+    assert res.status_code == 200
+    assert fake_upload.file_names == ["x" * 100 + ".png"]
+
+
+def test_unreadable_image_is_400(client, auth, fake_upload):
+    res = client.post(SUBMIT, headers=auth, data={"combine_images_to_pdf": "true"},
+                      files=[("files", ("scan.png", b"not really a png"))])
+    assert res.status_code == 400
+    assert "scan.png is not a readable image" in res.json()["detail"]
+    assert fake_upload.file_names is None

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,6 +9,55 @@ import 'package:frontend/api.dart';
 import 'package:frontend/pages/assignments_page.dart';
 import 'package:frontend/pages/common.dart';
 import 'package:frontend/pages/courses_page.dart';
+import 'package:frontend/pages/submit_page.dart';
+
+/// Hands back [files] instead of opening a file dialog.
+class _FakePicker extends FilePickerPlatform {
+  _FakePicker(this.files);
+
+  final List<PlatformFile> files;
+
+  @override
+  Future<List<PlatformFile>> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    int compressionQuality = 0,
+    AndroidOptions androidOptions = const AndroidOptions(),
+    DarwinOptions darwinOptions = const DarwinOptions(),
+    WindowsOptions windowsOptions = const WindowsOptions(),
+    LinuxOptions linuxOptions = const LinuxOptions(),
+    WebOptions webOptions = const WebOptions(),
+  }) async =>
+      files;
+}
+
+final class _FakeFile extends PlatformFile {
+  _FakeFile(this.name);
+
+  @override
+  final String name;
+
+  @override
+  Uri get uri => Uri.file('/tmp/$name');
+
+  @override
+  get xFile => throw UnimplementedError(); // type inferred: XFile isn't exported
+
+  @override
+  int? lengthSync() => 1024;
+
+  @override
+  Future<int?> length() async => 1024;
+
+  @override
+  Future<Uint8List> readAsBytes() async => Uint8List(1024);
+
+  @override
+  Stream<Uint8List> readAsByteStream() => Stream.value(Uint8List(1024));
+}
 
 Widget _app(Widget body) => MaterialApp(home: Scaffold(body: body));
 
@@ -120,6 +171,27 @@ void main() {
     expect(find.text('9 days left'), findsOneWidget);
     expect(find.textContaining('Late until'), findsOneWidget);
     expect(find.bySemanticsLabel('Grade 18.5 out of 20'), findsOneWidget);
+  });
+
+  testWidgets('a suggested conversion works before the format list loads',
+      (tester) async {
+    // The test HTTP client fails every request, so /convert/formats never loads.
+    final picker = FilePickerPlatform.instance;
+    addTearDown(() => FilePickerPlatform.instance = picker);
+    FilePickerPlatform.instance = _FakePicker([_FakeFile('clip.mov')]);
+
+    await tester.pumpWidget(MaterialApp(
+      home: SubmitPage(
+        course: Course.fromJson({'id': '1', 'name': 'CSC 4330'}),
+        assignment: _assignment('Video demo', dueIn: const Duration(days: 2)),
+      ),
+    ));
+    await tester.tap(find.text('Add files'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Convert each file to .mp4'), findsOneWidget);
+    expect(find.text('Gradescope will receive: clip.mp4'), findsOneWidget);
   });
 
   test('timeLeft', () {

@@ -118,7 +118,7 @@ def convert_file(
     except converter.ConversionError as e:
         shutil.rmtree(work, ignore_errors=True)
         raise HTTPException(400, str(e))
-    except HTTPException:
+    except Exception:
         shutil.rmtree(work, ignore_errors=True)
         raise
     return FileResponse(
@@ -188,17 +188,14 @@ def submit(
 # ---------- helpers ----------
 
 def _safe_name(name: str) -> str:
-    name = Path(name or "file").name
-    return re.sub(r"[^A-Za-z0-9._ -]", "_", name)[:120] or "file"
+    name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(name or "file").name)
+    stem, suffix = os.path.splitext(name)
+    return stem[:100] + suffix[:20] or "file"  # shorten without losing the extension
 
 
 def _save_upload(upload: UploadFile, dest_dir: Path) -> Path:
     """Stream an upload to disk, enforcing the size limit."""
-    path = dest_dir / _safe_name(upload.filename)
-    i = 1
-    while path.exists():  # two files with the same name
-        path = dest_dir / f"{path.stem}_{i}{path.suffix}"
-        i += 1
+    path = converter.unique_path(dest_dir / _safe_name(upload.filename))  # two files with the same name
     written = 0
     with open(path, "wb") as out:
         while chunk := upload.file.read(1024 * 1024):
