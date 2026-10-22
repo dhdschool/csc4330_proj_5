@@ -5,7 +5,8 @@ import requests
 
 from gradescopeapi import DEFAULT_GRADESCOPE_BASE_URL
 from gradescopeapi.classes.assignments import Assignment
-
+from gradescopeapi.classes.content import Content
+from bs4 import BeautifulSoup
 
 class NotAuthorized(Exception):
     pass
@@ -195,3 +196,28 @@ def get_submission_files(
             raise NotImplementedError("Image only submissions not yet supported")
         # TODO add support for image questions
     return aws_links
+
+def get_content(soup: BeautifulSoup) -> Content:
+    view = soup.find("div", attrs={"data-react-class": "AssignmentSubmissionViewer"})
+    
+    if(view is None):
+        view = soup.find("div", attrs={"data-react-class": "OnlineAssignmentSubmitter"})
+    
+    if(view is None):
+        raise ValueError("Could not get content")
+    
+    return Content.model_validate({"content": json.loads(view.attrs["data-react-props"])})    
+    
+def get_content_by_assignment(
+                course_id: str,
+                assignment_id: str,
+                session: requests.Session,
+                gradescope_base_url: str = DEFAULT_GRADESCOPE_BASE_URL
+                ) -> Content:
+    content_url = f"{gradescope_base_url}/courses/{course_id}/assignments/{assignment_id}"
+    
+    resp: requests.Response = check_page_auth(session, content_url)
+    soup = BeautifulSoup(resp.text, "html.parser")
+    content = get_content(soup)
+    
+    return content

@@ -8,6 +8,7 @@ from gradescopeapi.classes._helpers._assignment_helpers import (
     get_assignments_instructor_view,
     get_assignments_student_view,
     get_submission_files,
+    get_content_by_assignment
 )
 from gradescopeapi.classes._helpers._course_helpers import (
     get_course_members,
@@ -17,6 +18,7 @@ from gradescopeapi.classes.assignments import Assignment
 from gradescopeapi.classes.member import Member
 from gradescopeapi.classes._helpers._assignment_helpers import NotAuthorized
 from gradescopeapi.classes.courses import Course
+from gradescopeapi.classes.content import Content
 
 
 class Account:
@@ -188,6 +190,11 @@ class Account:
             time.sleep(0.1)
         return submission_links
 
+    def get_assignment_content(
+        self, course_id: str, assignment_id: str
+    ) -> Content: 
+        return get_content_by_assignment(course_id, assignment_id, self.session, self.gradescope_base_url)
+    
     def get_assignment_submission(
         self, student_email: str, course_id: str, assignment_id: str
     ) -> list[str]:

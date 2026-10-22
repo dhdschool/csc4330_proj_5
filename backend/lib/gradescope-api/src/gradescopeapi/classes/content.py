@@ -1,56 +1,103 @@
-from dataclasses import dataclass
-from enum import Enum
-import pathlib
+import pydantic
+from datetime import datetime
+from typing import Literal, Union, Annotated, Any
 
-class FileType(Enum):
-    VIDEO = 1
-    IMAGE = 2
-    BLOB = 3
+class AssignmentContent(pydantic.BaseModel):
+    id: int
+    title: str
+    total_points: str
+    student_submission: bool
+    due_date: datetime | None
+    submission_allowed: bool
+    
+class AssignmentSubmission(pydantic.BaseModel):
+    id: int
+    created_at: datetime | None
+    score: str | None = None
+    
+class QuestionSubmission(pydantic.BaseModel):
+    score: str | None = None
+    question_id: int
+    data: dict
+    active: bool
+    answers: dict
+    id: int
 
-@dataclass
-class Content:
-    content_id: str
-    question_id: str
+class TextContent(pydantic.BaseModel):
+    type: Literal["text"]
+    value: str
+
+class FileUploadInput(pydantic.BaseModel):
+    type: Literal["file_upload_input"]
+
+class FreeResponseInput(pydantic.BaseModel):
+    type: Literal["free_response_input"]
+
+class RadioChoices(pydantic.BaseModel):
+    value: str
+
+class RadioInput(pydantic.BaseModel):
+    type: Literal["radio_input"]
+    choices: list[RadioChoices]
+
+QuestionContent = Annotated[Union[TextContent, FileUploadInput, FreeResponseInput, RadioInput], pydantic.Field(discriminator="type")]
+
+    
+class Question(pydantic.BaseModel):
+    id: int
+    title: str
+    index: int
+    weight: str
+    scoring_type: str
+    content: list[QuestionContent]
+
+class FilesContentDict(pydantic.BaseModel):
+    url: pydantic.HttpUrl
+
+class FilesContent(pydantic.BaseModel): 
+    id: int
+    file: FilesContentDict
+    path: str
+    file_size: int
+    content_type: str
+    url: pydantic.HttpUrl
+
+class AssignmentSubmissionContent(pydantic.BaseModel):
+    type: Literal["content"] = "content"
+    assignment: AssignmentContent
+    assignment_submission: AssignmentSubmission | None
+    question_submissions: list[QuestionSubmission]
+    questions: list[Question]
+    text_files: list[FilesContent]
+
+class OutlineContent(pydantic.BaseModel):
+    id: int
+    type: str
+    title: str
+    parent_id: int | None
+    weight: str
+    content: list[QuestionContent]
     index: int
 
-@dataclass
-class FormContent(Content):
-    text: str
-
-@dataclass
-class RadioContent(Content):
-    options: list[str]
-    selected: int | None # Index of selected item
-
-    def get_selected(self) -> str | None:
-        """Returns the selected option if present"""
-        if self.selected is None or self.selected < 0 or self.selected > len(self.options):
-            return None
-        else:
-            return self.options[self.selected]
+class QuestionSubmissionsView(pydantic.BaseModel):
+    id: int
+    question_id: int
+    assignment_submission_id: int
+    created_at: datetime
+    updated_at: datetime 
+    answers: dict[str, Any]
+    question: Question
     
-@dataclass
-class FileContent(Content): 
-    is_populated: bool
-    file_type: FileType
-    binary: bytes | None
-    name: str | None
-    
-    def get_extension(self) -> str | None:
-        """Returns .txt from dir1/dir2/example.txt from a given file"""
-        if self.name is None:
-            return None
-        else: 
-            return pathlib.Path(self.name).suffix
-    
-@dataclass
-class TextContent(Content):
-    text: str
-
-
-@dataclass
-class Question:
-    question_id: str
-    points: int
+class OnlineAssignmentSubmitterContent(pydantic.BaseModel):
+    type: Literal["new_submission"] = "new_submission"
     title: str
-    content: dict[str, Content]
+    outline: list[OutlineContent]
+    outlineHash: str
+    answers: dict[str, dict[str, Any]]
+    questionSubmissions: dict[str, QuestionSubmissionsView]
+    files: list[FilesContent]
+    
+SubmissionContent = Union[OnlineAssignmentSubmitterContent | AssignmentSubmissionContent]    
+
+class Content(pydantic.BaseModel):
+    content: SubmissionContent
