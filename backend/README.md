@@ -1,8 +1,12 @@
 # Backend
 
 Python (FastAPI) server between the Flutter app and Gradescope. It uses the
-unofficial [`gradescopeapi`](https://github.com/nyuoss/gradescope-api) library
+a modified version of the unofficial [`gradescopeapi`](https://github.com/nyuoss/gradescope-api) library
 for Gradescope and ffmpeg / Pillow for file conversion.
+
+The modified version of the library is contained in ./lib/gradescope-api. 
+These patches are necessary to ensure cohesion with certain added features without making too many 
+identical requests to gradescope.
 
 We don't use the library's bundled API server because it shares one Gradescope
 login across every user and its upload endpoint is marked nonfunctional.
