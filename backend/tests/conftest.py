@@ -27,11 +27,12 @@ HAS_FFMPEG = shutil.which("ffmpeg") is not None
 class FakeConnection:
     """Stands in for gradescopeapi's GSConnection."""
 
-    def __init__(self, courses=None, assignments=None):
+    def __init__(self, courses=None, assignments=None, content=None):
         self.session = object()  # passed through to upload_assignment untouched
         self.account = SimpleNamespace(
             get_courses=lambda: courses or {"student": {}, "instructor": {}},
             get_assignments=lambda course_id: assignments or [],
+            get_assignment_content=lambda course_id, assignment_id: content,
         )
 
     def login(self, email, password):

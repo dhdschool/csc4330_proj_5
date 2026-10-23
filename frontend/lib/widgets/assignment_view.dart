@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../pages/common.dart' show formatSize;
+import 'conversion_picker.dart';
 import 'ui.dart';
 
 // ---------------------------------------------------------------------------
@@ -95,11 +96,16 @@ class FileUploadQuestion extends Question {
     super.required,
     this.allowedExtensions,
     this.maxFiles,
+    this.existingFiles = const [],
   });
 
   /// Lowercase, without the dot. Null accepts anything.
   final List<String>? allowedExtensions;
   final int? maxFiles;
+
+  /// Names of files already uploaded in an earlier submission. They count as
+  /// an answer; they're listed but can't be removed from here.
+  final List<String> existingFiles;
 }
 
 /// The student's answers, keyed by question id.
@@ -107,16 +113,19 @@ class AssignmentAnswers extends ChangeNotifier {
   final _choices = <String, Set<int>>{};
   final _text = <String, String>{};
   final _files = <String, List<PlatformFile>>{};
+  final _conversions = <String, Conversion>{};
 
   Set<int> choicesFor(String id) => Set.unmodifiable(_choices[id] ?? const <int>{});
   String textFor(String id) => _text[id] ?? '';
   List<PlatformFile> filesFor(String id) =>
       List.unmodifiable(_files[id] ?? const <PlatformFile>[]);
+  Conversion conversionFor(String id) => _conversions[id] ?? const NoConversion();
 
   bool isAnswered(Question q) => switch (q) {
         MultipleChoiceQuestion() => _choices[q.id]?.isNotEmpty ?? false,
         FreeResponseQuestion() => textFor(q.id).trim().isNotEmpty,
-        FileUploadQuestion() => _files[q.id]?.isNotEmpty ?? false,
+        FileUploadQuestion() =>
+          (_files[q.id]?.isNotEmpty ?? false) || q.existingFiles.isNotEmpty,
       };
 
   void toggleChoice(MultipleChoiceQuestion q, int option) {
@@ -143,6 +152,12 @@ class AssignmentAnswers extends ChangeNotifier {
     if (max != null && current.length > max) {
       current.removeRange(0, current.length - max);
     }
+    _conversions[q.id] = suggestConversion(conversionFor(q.id), current);
+    notifyListeners();
+  }
+
+  void setConversion(String id, Conversion conversion) {
+    _conversions[id] = conversion;
     notifyListeners();
   }
 
@@ -168,6 +183,9 @@ class AssignmentView extends StatefulWidget {
     required this.onSubmit,
     this.answers,
     this.onDone,
+    this.conversionFormats,
+    this.banner,
+    this.submitLabel = 'Submit',
   });
 
   final AssignmentSpec assignment;
@@ -178,6 +196,16 @@ class AssignmentView extends StatefulWidget {
 
   /// Shows a "Done" button on the success screen when set.
   final VoidCallback? onDone;
+
+  /// Target format -> source extensions. When set, each file upload offers to
+  /// convert its files before submitting.
+  final Map<String, List<String>>? conversionFormats;
+
+  /// Shown under the title, e.g. what was submitted before.
+  final Widget? banner;
+
+  /// The submit button's verb, e.g. "Resubmit".
+  final String submitLabel;
 
   @override
   State<AssignmentView> createState() => _AssignmentViewState();
@@ -235,6 +263,20 @@ class _AssignmentViewState extends State<AssignmentView>
             alignment: 0.1);
       }
       return;
+    }
+    final formats = widget.conversionFormats;
+    if (formats != null) {
+      for (final q in widget.assignment.questions.whereType<FileUploadQuestion>()) {
+        final problem =
+            conversionProblem(_answers.conversionFor(q.id), _answers.filesFor(q.id), formats);
+        if (problem == null) continue;
+        HapticFeedback.heavyImpact();
+        _shake.forward(from: 0);
+        final target = _keys[q.id]?.currentContext;
+        if (target != null) Scrollable.ensureVisible(target, alignment: 0.1);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem)));
+        return;
+      }
     }
     setState(() => _submitting = true);
     try {
@@ -299,6 +341,11 @@ class _AssignmentViewState extends State<AssignmentView>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Entrance(index: 0, child: _AssignmentHeader(assignment: a)),
+                if (widget.banner case final banner?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Entrance(index: 0, child: banner),
+                  ),
                 for (final (i, item) in a.items.indexed)
                   Padding(
                     padding: const EdgeInsets.only(top: 14),
@@ -329,6 +376,7 @@ class _AssignmentViewState extends State<AssignmentView>
           submitting: _submitting,
           ready: missing.isEmpty,
           missing: _showErrors ? missing.length : 0,
+          label: widget.submitLabel,
           onPressed: _submit,
         ),
       ],
@@ -351,6 +399,10 @@ class _AssignmentViewState extends State<AssignmentView>
             files: _answers.filesFor(q.id),
             onAdd: (files) => _answers.addFiles(q, files),
             onRemove: (f) => _answers.removeFile(q.id, f),
+            conversion: _answers.conversionFor(q.id),
+            conversionFormats: widget.conversionFormats,
+            onConversionChanged:
+                _submitting ? null : (c) => _answers.setConversion(q.id, c),
           ),
       };
 }
@@ -684,10 +736,12 @@ class _SubmitBar extends StatelessWidget {
     required this.submitting,
     required this.ready,
     required this.missing,
+    required this.label,
     required this.onPressed,
   });
 
   final bool hidden, submitting, ready;
+  final String label;
   final Animation<double> shake;
 
   /// Required questions left to point out; 0 hides the hint.
@@ -736,7 +790,7 @@ class _SubmitBar extends StatelessWidget {
                 ShakeTransition(
                   animation: shake,
                   child: PillButton(
-                    label: ready ? 'Submit assignment' : 'Submit',
+                    label: ready ? '$label assignment' : label,
                     icon: Icons.send_rounded,
                     busy: submitting,
                     busyLabel: 'Submitting…',
@@ -1024,12 +1078,20 @@ class _FileUploadField extends StatefulWidget {
     required this.files,
     required this.onAdd,
     required this.onRemove,
+    this.conversion = const NoConversion(),
+    this.conversionFormats,
+    this.onConversionChanged,
   });
 
   final FileUploadQuestion question;
   final List<PlatformFile> files;
   final ValueChanged<List<PlatformFile>> onAdd;
   final ValueChanged<PlatformFile> onRemove;
+  final Conversion conversion;
+
+  /// Null hides the conversion picker.
+  final Map<String, List<String>>? conversionFormats;
+  final ValueChanged<Conversion>? onConversionChanged;
 
   @override
   State<_FileUploadField> createState() => _FileUploadFieldState();
@@ -1167,6 +1229,7 @@ class _FileUploadFieldState extends State<_FileUploadField>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              for (final name in q.existingFiles) _ExistingFileTile(name: name),
               for (final f in files)
                 Entrance(
                   key: ObjectKey(f),
@@ -1176,6 +1239,16 @@ class _FileUploadFieldState extends State<_FileUploadField>
             ],
           ),
         ),
+        if (widget.conversionFormats case final formats?) ...[
+          const SizedBox(height: 12),
+          ConversionPicker(
+            conversion: widget.conversion,
+            files: files,
+            formats: formats,
+            onChanged: widget.onConversionChanged,
+            label: 'Before submitting',
+          ),
+        ],
       ],
     );
   }
@@ -1244,6 +1317,41 @@ class _FileTile extends StatelessWidget {
             icon: const Icon(Icons.close_rounded),
             onPressed: onRemove,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A file from an earlier submission, already on Gradescope.
+class _ExistingFileTile extends StatelessWidget {
+  const _ExistingFileTile({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_done_outlined, size: 20, color: scheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium),
+          ),
+          Text('On Gradescope',
+              style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
         ],
       ),
     );

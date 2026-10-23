@@ -78,6 +78,94 @@ def test_gradescope_failure_is_502(client, auth, monkeypatch):
     assert res.status_code == 502
 
 
+
+# ---------- assignment content ----------
+
+CONTENT = "/courses/1/assignments/2/content"
+
+
+def _content_from(react_class, props):
+    from gradescopeapi.classes._helpers._assignment_helpers import get_content
+    from test_content import page
+    return get_content(page(react_class, props))
+
+
+@pytest.mark.parametrize("react_class, props", [
+    ("OnlineAssignmentSubmitter", "NEW_SUBMISSION"),
+    ("AssignmentSubmissionViewer", "SUBMITTED"),
+])
+def test_content_lists_questions_either_way(client, login_as, react_class, props):
+    import test_content
+    headers = login_as(content=_content_from(react_class, getattr(test_content, props)))
+
+    res = client.get(CONTENT, headers=headers)
+    assert res.status_code == 200
+    [q] = res.json()["questions"]
+    assert q["title"] == "Pick one"
+    assert q["weight"] == "2.0"
+    assert q["content"][0] == {"type": "text", "value": "Which sort is stable?"}
+    assert [c["value"] for c in q["content"][1]["choices"]] == ["Merge sort", "Heap sort"]
+
+
+def test_content_includes_what_was_submitted(client, login_as):
+    import test_content
+    submitted = {
+        **test_content.SUBMITTED,
+        "assignment_submission": {"id": 9, "created_at": "2026-10-22T13:00:00.000-05:00", "score": "1.5"},
+        "question_submissions": [
+            {"id": 2, "question_id": 11, "data": {}, "active": False, "answers": {"0": "old answer"}},
+            {"id": 3, "question_id": 11, "data": {}, "active": True,
+             "answers": {"0": "Merge sort", "1": [{"name": "tasks.png", "url": "https://x/tasks.png"}]}},
+        ],
+    }
+    headers = login_as(content=_content_from("AssignmentSubmissionViewer", submitted))
+
+    body = client.get(CONTENT, headers=headers).json()
+    assert body["answers"] == {"11/0": "Merge sort"}  # only the active submission
+    assert body["files"] == {"11/1": ["tasks.png"]}
+    assert body["submission"] == {
+        "id": 9, "created_at": "2026-10-22T13:00:00-05:00", "score": "1.5", "total_points": "2.0",
+        "url": "https://www.gradescope.com/courses/1/assignments/2/submissions/9",
+    }
+
+
+def test_answers_saved_before_submitting_are_included(client, login_as):
+    import test_content
+    saved = {**test_content.NEW_SUBMISSION, "answers": {"11": {"0": "Heap sort", "1": ["https://x/a/demo.mp4"]}}}
+    headers = login_as(content=_content_from("OnlineAssignmentSubmitter", saved))
+
+    body = client.get(CONTENT, headers=headers).json()
+    assert body["answers"] == {"11/0": "Heap sort"}
+    assert body["files"] == {"11/1": ["demo.mp4"]}
+    assert body["submission"] is None
+
+
+def test_upload_only_assignment_has_no_questions(client, auth):
+    def no_questions(course_id, assignment_id):
+        raise ValueError("Could not get content: not an online assignment page")
+
+    main.store.get("test-token").connection.account.get_assignment_content = no_questions
+    res = client.get(CONTENT, headers=auth)
+    assert res.status_code == 200
+    assert res.json() == {"questions": [], "answers": {}, "files": {}, "submission": None}
+
+
+def test_unparseable_content_is_502(client, auth):
+    import test_content
+    bad = {**test_content.NEW_SUBMISSION, "outline": [{"id": "not a number"}]}
+
+    def broken(course_id, assignment_id):
+        return _content_from("OnlineAssignmentSubmitter", bad)
+
+    main.store.get("test-token").connection.account.get_assignment_content = broken
+    res = client.get(CONTENT, headers=auth)
+    assert res.status_code == 502
+    assert "outline.0." in res.json()["detail"]  # says which field, so it can be fixed
+
+
+def test_content_needs_login(client):
+    assert client.get(CONTENT).status_code == 401
+
 # ---------- conversion ----------
 
 def test_convert_png_to_jpg(client, auth):

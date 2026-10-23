@@ -116,7 +116,7 @@ class OnlineAssignmentSubmitterContent(pydantic.BaseModel):
     outlineHash: str
     answers: dict[str, dict[str, Any]]
     questionSubmissions: dict[str, QuestionSubmissionsView]
-    files: list[FilesContent]
+    files: list[FilesContent] | None = None  # null when the assignment has no attached files
     
 SubmissionContent = Annotated[
     Union[OnlineAssignmentSubmitterContent, AssignmentSubmissionContent],

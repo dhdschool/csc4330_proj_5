@@ -8,6 +8,7 @@ import 'widgets/assignment_view.dart';
 void main() {
   runApp(MaterialApp(
     title: 'Assignment preview',
+    debugShowCheckedModeBanner: false,
     theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal)),
     darkTheme: ThemeData(
       colorScheme:

@@ -70,6 +70,77 @@ class Assignment {
   bool get canSubmit => id != null;
 }
 
+/// An online assignment's questions, plus what's already on Gradescope.
+class AssignmentContent {
+  AssignmentContent.fromJson(Map<String, dynamic> j)
+      : questions = [
+          for (final q in j['questions'] ?? const []) OnlineQuestion.fromJson(q)
+        ],
+        answers = {
+          for (final MapEntry(:key, :value) in (j['answers'] as Map? ?? const {}).entries)
+            '$key': _str(value) ?? '',
+        },
+        files = {
+          for (final MapEntry(:key, :value) in (j['files'] as Map? ?? const {}).entries)
+            '$key': [for (final name in value) _str(name) ?? ''],
+        },
+        submission = j['submission'] == null
+            ? null
+            : PastSubmission.fromJson(j['submission']);
+
+  final List<OnlineQuestion> questions;
+
+  /// Saved answers by `<question id>/<input number>`: typed text, or the chosen option.
+  final Map<String, String> answers;
+
+  /// Names of files already uploaded, by `<question id>/<input number>`.
+  final Map<String, List<String>> files;
+
+  /// The latest submission, when Gradescope showed one.
+  final PastSubmission? submission;
+}
+
+class PastSubmission {
+  PastSubmission.fromJson(Map<String, dynamic> j)
+      : createdAt = _date(j['created_at']),
+        score = _str(j['score']),
+        totalPoints = _str(double.tryParse(_str(j['total_points']) ?? '')),
+        url = _str(j['url']);
+
+  final DateTime? createdAt;
+  final String? score, totalPoints, url;
+}
+
+/// One question of an online assignment.
+class OnlineQuestion {
+  OnlineQuestion.fromJson(Map<String, dynamic> j)
+      : id = _str(j['id']) ?? '',
+        parentId = _str(j['parent_id']),
+        index = _str(j['index']) ?? '',
+        title = _str(j['title'])?.trim() ?? '',
+        weight = _str(j['weight']),
+        blocks = [
+          for (final b in j['content'] ?? const []) QuestionBlock.fromJson(b)
+        ];
+
+  final String id, index, title;
+  final String? parentId, weight;
+  final List<QuestionBlock> blocks;
+}
+
+/// A piece of a question: some text, a multiple choice, or where an answer goes.
+class QuestionBlock {
+  QuestionBlock.fromJson(Map<String, dynamic> j)
+      : type = _str(j['type']) ?? '',
+        text = _str(j['value']),
+        choices = [for (final c in j['choices'] ?? const []) _str(c['value']) ?? ''];
+
+  /// text, radio_input, file_upload_input, free_response_input, or something newer.
+  final String type;
+  final String? text;
+  final List<String> choices;
+}
+
 class SubmitResult {
   SubmitResult(this.submissionUrl, this.files);
 
@@ -124,6 +195,45 @@ class Api {
         Uri.parse('$backendUrl/courses/$courseId/assignments'),
         headers: _auth));
     return [for (final a in res) Assignment.fromJson(a)];
+  }
+
+  /// The assignment's questions and what's been submitted; no questions for
+  /// upload-only assignments.
+  Future<AssignmentContent> content(String courseId, String assignmentId) async {
+    final res = await _send(() => http.get(
+        Uri.parse('$backendUrl/courses/$courseId/assignments/$assignmentId/content'),
+        headers: _auth));
+    return AssignmentContent.fromJson(res);
+  }
+
+  /// Saves answers to an online assignment. Keys are `<question id>/<input number>`.
+  Future<void> saveAnswers(
+    String courseId,
+    String assignmentId, {
+    required Map<String, String> text,
+    required Map<String, String> choices, // the chosen option's text, as Gradescope stores it
+    required Map<String, List<PlatformFile>> files,
+    Map<String, String> conversions = const {}, // "none", "combine" or "to:<ext>"
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$backendUrl/courses/$courseId/assignments/$assignmentId/answers'),
+    )
+      ..headers.addAll(_auth)
+      ..fields['answers'] = jsonEncode(text)
+      ..fields['choices'] = jsonEncode(choices)
+      ..fields['conversions'] = jsonEncode(conversions);
+    for (final MapEntry(key: input, value: list) in files.entries) {
+      for (final f in list) {
+        req.files.add(http.MultipartFile(
+          'files',
+          f.readAsByteStream(),
+          await f.length() ?? 0,
+          filename: '$input/${f.name}', // the backend splits off which input it's for
+        ));
+      }
+    }
+    await _send(() async => http.Response.fromStream(await req.send()), timeout: null);
   }
 
   /// Target format -> source extensions it can be made from.

@@ -143,7 +143,8 @@ class PillButton extends StatelessWidget {
                   children: [
                     Icon(icon, size: 18),
                     const SizedBox(width: 10),
-                    Text(label),
+                    // Shrinks rather than overflowing on a narrow phone or large text
+                    Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
                   ],
                 ),
         ),

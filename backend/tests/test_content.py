@@ -64,6 +64,13 @@ def test_new_submission_page():
     assert [c.value for c in radio.choices] == ["Merge sort", "Heap sort"]
 
 
+def test_new_submission_page_without_attached_files():
+    # Gradescope sends null rather than [] when the assignment has no files
+    content = get_content(page("OnlineAssignmentSubmitter", {**NEW_SUBMISSION, "files": None})).content
+    assert content.files is None
+    assert content.outline[0].title == "Pick one"
+
+
 def test_submitted_page():
     content = get_content(page("AssignmentSubmissionViewer", SUBMITTED)).content
     assert isinstance(content, AssignmentSubmissionContent)
